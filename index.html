@@ -653,16 +653,37 @@ async function loadVideosFromDB() {
   }
 }
 
+function cleanYouTubeId(id) {
+  // Strip any trailing parameters after the 11-char ID
+  return (id || '').replace(/[^A-Za-z0-9_\-]/g, '').substring(0, 11);
+}
 function getEmbedUrl(url) {
   if (!url) return '';
   url = url.trim();
-  let m = url.match(/youtu\.be\/([A-Za-z0-9_\-]{11})/);
-  if (m) return 'https://www.youtube.com/embed/' + m[1] + '?rel=0';
+  let m;
+  // youtu.be/XXXXXXXXXXX
+  m = url.match(/youtu\.be\/([A-Za-z0-9_\-]{11})/);
+  if (m) return 'https://www.youtube.com/embed/' + cleanYouTubeId(m[1]) + '?rel=0';
+  // youtube.com/watch?v=XXXXXXXXXXX
   m = url.match(/[?&]v=([A-Za-z0-9_\-]{11})/);
-  if (m) return 'https://www.youtube.com/embed/' + m[1] + '?rel=0';
-  if (url.includes('youtube.com/embed/')) return url;
+  if (m) return 'https://www.youtube.com/embed/' + cleanYouTubeId(m[1]) + '?rel=0';
+  // already embed URL
+  if (url.includes('youtube.com/embed/')) return url.split('?')[0] + '?rel=0';
+  // youtube.com/shorts/XXXXXXXXXXX  (strip ?si= and other params)
   m = url.match(/youtube\.com\/shorts\/([A-Za-z0-9_\-]{11})/);
-  if (m) return 'https://www.youtube.com/embed/' + m[1] + '?rel=0';
+  if (m) return 'https://www.youtube.com/embed/' + cleanYouTubeId(m[1]) + '?rel=0';
+  return url;
+}
+function cleanUrlForSave(url) {
+  // Strip tracking params (?si=, &si=, etc.) before saving to database
+  if (!url) return '';
+  url = url.trim();
+  // Remove ?si=xxx or &si=xxx tracking params added by YouTube share links
+  url = url.replace(/[?&]si=[A-Za-z0-9_\-]+/g, '');
+  // Remove ?feature=share and similar
+  url = url.replace(/[?&]feature=[^&]*/g, '');
+  // Clean up trailing ? or &
+  url = url.replace(/[?&]$/, '');
   return url;
 }
 
@@ -760,11 +781,13 @@ async function saveVideo() {
   const msg = document.getElementById('videoFormMsg');
   if (!title || !url) { msg.style.color='var(--red)'; msg.textContent='⚠️ Title and URL are required.'; return; }
   msg.style.color='var(--gray)'; msg.textContent='Saving…';
-  const obj = { title, category, description: desc, url };
+  const cleanedUrl = cleanUrlForSave(url);
+  const obj = { title, category, description: desc, url: cleanedUrl };
   try {
     if (idx === -1) {
       const rows = await sbRequest('videos', { method: 'POST', body: JSON.stringify(obj) });
       videos.push({ ...rows[0], desc: rows[0].description || desc });
+      document.getElementById('vUrl').value = cleanedUrl;
       msg.style.color='var(--green)'; msg.textContent='✅ Video saved to cloud!';
     } else {
       const vid = videos[idx];
